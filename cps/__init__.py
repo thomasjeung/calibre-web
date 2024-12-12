@@ -55,13 +55,13 @@ mimetypes.init()
 mimetypes.add_type('application/xhtml+xml', '.xhtml')
 mimetypes.add_type('application/epub+zip', '.epub')
 mimetypes.add_type('application/epub+zip', '.kepub')
-mimetypes.add_type('text/xml', '.fb2')
+mimetypes.add_type('application/fb2+zip', '.fb2')
 mimetypes.add_type('application/octet-stream', '.mobi')
 mimetypes.add_type('application/octet-stream', '.prc')
 mimetypes.add_type('application/vnd.amazon.ebook', '.azw')
 mimetypes.add_type('application/x-mobi8-ebook', '.azw3')
-mimetypes.add_type('application/x-rar', '.cbr')
-mimetypes.add_type('application/zip', '.cbz')
+mimetypes.add_type('application/x-cbr', '.cbr')
+mimetypes.add_type('application/x-cbz', '.cbz')
 mimetypes.add_type('application/x-tar', '.cbt')
 mimetypes.add_type('application/x-7z-compressed', '.cb7')
 mimetypes.add_type('image/vnd.djv', '.djv')
@@ -102,7 +102,7 @@ if wtf_present:
 else:
     csrf = None
 
-calibre_db = db.CalibreDB()
+calibre_db = db.CalibreDB(app)
 
 web_server = WebServer()
 
@@ -146,9 +146,7 @@ def create_app():
     lm.anonymous_user = ub.Anonymous
     lm.session_protection = 'strong' if config.config_session == 1 else "basic"
 
-    db.CalibreDB.update_config(config)
-    db.CalibreDB.setup_db(config.config_calibre_dir, cli_param.settings_path)
-    calibre_db.init_db()
+    db.CalibreDB.update_config(config, config.config_calibre_dir, cli_param.settings_path)
 
     updater_thread.init_updater(config, web_server)
     # Perform dry run of updater and exit afterward

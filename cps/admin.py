@@ -32,7 +32,8 @@ from datetime import time as datetime_time
 from functools import wraps
 from urllib.parse import urlparse
 
-from flask import Blueprint, flash, redirect, url_for, abort, request, make_response, send_from_directory, g, Response
+from flask import Blueprint, flash, redirect, url_for, abort, request, make_response, \
+    send_from_directory, g, jsonify
 from markupsafe import Markup
 from .cw_login import current_user
 from flask_babel import gettext as _
@@ -118,7 +119,7 @@ def before_request():
     g.allow_upload = config.config_uploading
     g.current_theme = config.config_theme
     g.config_authors_max = config.config_authors_max
-    if '/static/' not in request.path and not config.db_configured and \
+    if ('/static/' not in request.path and not config.db_configured and
         request.endpoint not in ('admin.ajax_db_config',
                                  'admin.simulatedbchange',
                                  'admin.db_configuration',
@@ -126,7 +127,7 @@ def before_request():
                                  'web.login_post',
                                  'web.logout',
                                  'admin.load_dialogtexts',
-                                 'admin.ajax_pathchooser'):
+                                 'admin.ajax_pathchooser')):
         return redirect(url_for('admin.db_configuration'))
 
 
@@ -144,7 +145,6 @@ def shutdown():
     show_text = {}
     if task in (0, 1):  # valid commandos received
         # close all database connections
-        calibre_db.dispose()
         ub.dispose()
 
         if task == 0:
@@ -379,10 +379,7 @@ def list_users():
             user.default = get_user_locale_language(user.default_language)
 
     table_entries = {'totalNotFiltered': total_count, 'total': filtered_count, "rows": users}
-    js_list = json.dumps(table_entries, cls=db.AlchemyEncoder)
-    response = make_response(js_list)
-    response.headers["Content-Type"] = "application/json; charset=utf-8"
-    return response
+    return make_response(json.dumps(table_entries, cls=db.AlchemyEncoder))
 
 
 @admi.route("/ajax/deleteuser", methods=['POST'])
@@ -401,7 +398,7 @@ def delete_user():
     success = list()
     if not users:
         log.error("User not found")
-        return Response(json.dumps({'type': "danger", 'message': _("User not found")}), mimetype='application/json')
+        return make_response(jsonify(type="danger", message=_("User not found")))
     for user in users:
         try:
             message = _delete_user(user)
@@ -417,7 +414,7 @@ def delete_user():
         log.info("Users {} deleted".format(user_ids))
         success = [{'type': "success", 'message': _("{} users deleted successfully").format(count)}]
     success.extend(errors)
-    return Response(json.dumps(success), mimetype='application/json')
+    return make_response(jsonify(success))
 
 
 @admi.route("/ajax/getlocale")
@@ -499,10 +496,10 @@ def edit_list_user(param):
                                 if not ub.session.query(ub.User). \
                                     filter(ub.User.role.op('&')(constants.ROLE_ADMIN) == constants.ROLE_ADMIN,
                                            ub.User.id != user.id).count():
-                                    return Response(
-                                        json.dumps([{'type': "danger",
+                                    return make_response(
+                                        jsonify([{'type': "danger",
                                                      'message': _("No admin user remaining, can't remove admin role",
-                                                                  nick=user.name)}]), mimetype='application/json')
+                                                                  nick=user.name)}]))
                             user.role &= ~value
                         else:
                             raise Exception(_("Value has to be true or false"))
@@ -948,7 +945,7 @@ def do_full_kobo_sync(userid):
     count = ub.session.query(ub.KoboSyncedBooks).filter(userid == ub.KoboSyncedBooks.user_id).delete()
     message = _("{} sync entries deleted").format(count)
     ub.session_commit(message)
-    return Response(json.dumps([{"type": "success", "message": message}]), mimetype='application/json')
+    return make_response(jsonify(type="success", message=message))
 
 
 def check_valid_read_column(column):
@@ -1265,7 +1262,7 @@ def _configuration_ldap_helper(to_save):
 @admin_required
 def simulatedbchange():
     db_change, db_valid = _db_simulate_change()
-    return Response(json.dumps({"change": db_change, "valid": db_valid}), mimetype='application/json')
+    return make_response(jsonify(change=db_change, valid=db_valid))
 
 
 @admi.route("/admin/user/new", methods=["GET", "POST"])
@@ -1737,14 +1734,12 @@ def _db_configuration_update_helper():
             return _db_configuration_result(_("Books path not valid"), gdrive_error)
         else:
             _config_string(to_save, "config_calibre_split_dir")
-
-    if db_change or not db_valid or not config.db_configured \
-      or config.config_calibre_dir != to_save["config_calibre_dir"]:
+    if (db_change or not db_valid or not config.db_configured
+           or config.config_calibre_dir != to_save["config_calibre_dir"]):
         if not os.path.exists(metadata_db) or not to_save['config_calibre_dir']:
             return _db_configuration_result(_('DB Location is not Valid, Please Enter Correct Path'), gdrive_error)
         else:
             calibre_db.setup_db(to_save['config_calibre_dir'], ub.app_DB_path)
-        config.store_calibre_uuid(calibre_db, db.Library_Id)
         # if db changed -> delete shelfs, delete download books, delete read books, kobo sync...
         if db_change:
             log.info("Calibre Database changed, all Calibre-Web info related to old Database gets deleted")
@@ -1767,10 +1762,11 @@ def _db_configuration_update_helper():
             config.config_allowed_column_value = ""
             config.config_read_column = 0
         _config_string(to_save, "config_calibre_dir")
-        calibre_db.update_config(config)
+        calibre_db.update_config(config, config.config_calibre_dir, ub.app_DB_path)
+        config.store_calibre_uuid(calibre_db, db.Library_Id)
         if not os.access(os.path.join(config.config_calibre_dir, "metadata.db"), os.W_OK):
             flash(_("DB is not Writeable"), category="warning")
-    calibre_db.update_config(config)
+    calibre_db.update_config(config, config.config_calibre_dir, ub.app_DB_path)
     config.save()
     return _db_configuration_result(None, gdrive_error)
 
@@ -1898,7 +1894,7 @@ def _configuration_result(error_flash=None, reboot=False):
         resp['result'] = [{'type': "success", 'message': _("Calibre-Web configuration updated")}]
     resp['reboot'] = reboot
     resp['config_upload'] = config.config_upload_formats
-    return Response(json.dumps(resp), mimetype='application/json')
+    return make_response(jsonify(resp))
 
 
 def _db_configuration_result(error_flash=None, gdrive_error=None):
